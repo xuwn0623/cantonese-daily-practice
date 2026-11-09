@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN" data-storage="browser">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#16324a"><title>粤语学习台</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="#today"><span class="brandmark" aria-hidden="true">粵</span><span>粤语学习台<small>由一句开始，慢慢倾。</small></span></a>
+    <nav aria-label="主要导航">
+      <button data-nav="today" class="active">今日练习</button>
+      <button data-nav="course">12 周课程</button>
+      <button data-nav="tones">声调练习</button>
+      <button data-nav="reviews">到期复习 <span id="due-count"></span></button>
+      <button data-nav="progress">学习记录</button>
+      <button data-nav="settings">使用与备份</button>
+    </nav>
+    <div class="side-bottom"><span class="local-dot"></span>个人练习，无语音费用<p>香港粤语示范<br>每次 45 分钟，每周 4 次</p></div>
+  </aside>
+  <div class="shell">
+    <header class="topbar"><span id="breadcrumb">今日练习</span><span id="save-status" role="status">正在载入本机记录…</span></header>
+    <section class="device-panel" aria-label="语音准备"><p id="device-status">正在检查粤语示范音…</p><button id="asr-setup">启用免费粤语识别</button><span id="asr-global-status">首次约 249 MB，之后优先用缓存。电脑优先；部分手机内存不足。无需账户、绑卡或订阅。</span></section>
+    <main id="main" tabindex="-1"><p class="loading">正在准备课程…</p></main>
+    <footer>香港粤语学习工作稿 · 内容识别不等于发音准确；音素评测尚未提供。</footer>
+  </div>
+  <div id="toast" role="status" aria-live="polite" hidden></div>
+  <dialog id="recorder-dialog" aria-labelledby="recorder-title">
+    <div class="dialog-head"><h2 id="recorder-title">录音练习</h2><button id="close-recorder" aria-label="关闭录音练习">×</button></div>
+    <p id="recorder-target" class="record-target"></p>
+    <p id="recorder-help" class="muted"></p>
+    <div id="record-status" role="status">准备好了就开始。麦克风只在录音时开启。</div>
+    <div class="record-actions"><button id="record-start" class="primary">开始录音</button><button id="record-stop" class="danger" hidden>停止录音</button></div>
+    <section id="record-result" hidden><audio id="record-playback" controls></audio><div id="pitch-chart"></div><p id="record-feedback"></p><p id="record-limit" class="note"></p><button id="download-recording">保存这次录音</button><button id="pending-recording" hidden>留作待核对，继续下一轮</button><button id="finish-recording" class="primary">回到练习</button></section>
+    <p class="privacy-note">声音在浏览器中分析，不上传。关闭页面后未保存的录音会消失。</p>
+  </dialog>
+  <script type="module" src="./app.mjs"></script>
+</body>
+</html>
