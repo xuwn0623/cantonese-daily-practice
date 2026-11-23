@@ -80,7 +80,7 @@ def main():
             if path.is_file():
                 os.utime(path, (1577836800, 1577836800))
         env = os.environ.copy()
-        env['PATH'] = str(Path(env['SystemRoot']) / 'System32')
+        env['PATH'] = str(Path(os.environ['SystemRoot']) / 'System32')
         env['PYTHONIOENCODING'] = 'utf-8'
         command = f'cmd.exe /d /v:off /c call "{root / "启动Windows.cmd"}" --check'
         check(command, root.parent, env)
