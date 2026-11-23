@@ -1,0 +1,35 @@
+name: Materialize reviewed Cantonese 1.0.2 release
+on:
+  push:
+    branches: [main]
+    paths: ['.release-1.0.2/READY']
+permissions:
+  contents: read
+concurrency:
+  group: cantonese-release-1.0.2
+  cancel-in-progress: false
+jobs:
+  materialize:
+    if: github.event.repository.private == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 2
+      - name: Verify exact release base
+        shell: bash
+        run: |
+          test "$(git rev-parse HEAD^)" = "2e843aee84ef641b660fbff519474c0ff2ad4517"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+      - name: Verify and materialize only approved static files
+        run: python3 -B .release-1.0.2/materialize.py
+      - name: Commit approved static files without rewriting history
+        shell: bash
+        run: |
+          git add --pathspec-from-file=.release-1.0.2/files.txt
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Bundle Cantonese course audio and first-run improvements (1.0.2)'
+          git push origin HEAD:main
+          git rev-parse HEAD
