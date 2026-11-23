@@ -1,0 +1,36 @@
+name: Windows bundled runtime
+
+on:
+  push:
+    paths:
+      - 'desktop-checks/runtime/**'
+      - 'desktop-checks/windows_bundled_smoke.py'
+      - '.github/workflows/windows-bundled-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-bundled-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    if: github.event.repository.private == false
+    runs-on: windows-latest
+    timeout-minutes: 10
+    env:
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            /desktop-checks/
+          sparse-checkout-cone-mode: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: '3.14'
+      - name: Check portable runtime without Python on PATH
+        run: python -B desktop-checks/windows_bundled_smoke.py desktop-checks/runtime
