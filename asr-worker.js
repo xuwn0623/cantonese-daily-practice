@@ -1,23 +1,42 @@
 /* sherpa-onnx 1.12.23 / WSYue SenseVoice 2025-09-09. All inference stays in this worker. */
 let recognizer;
+const MODEL_CACHE='cantonese-asr-2025-09-09-v1';
 const report=message=>postMessage({type:'progress',message});
-async function download(path,label){
-  let cache;try{cache=await caches.open('cantonese-asr-2025-09-09-v1');const stored=await cache.match(path);if(stored){report('读取已缓存的'+label);return new Uint8Array(await stored.arrayBuffer());}}catch{}
+async function download(path,label,fresh=false){
+  let cache;try{cache=await caches.open(MODEL_CACHE);const stored=fresh?null:await cache.match(path);if(stored){report('读取已缓存的'+label);return new Uint8Array(await stored.arrayBuffer());}}catch{}
   const response=await fetch(path);if(!response.ok)throw Error(label+'下载失败（'+response.status+'）');
   const bytes=new Uint8Array(await response.arrayBuffer());
   try{await cache?.put(path,new Response(bytes));}catch{}
   return bytes;
 }
+async function modelBytes(config,fresh=false){
+  const parts=[];let size=0;
+  for(let i=0;i<config.parts.length;i++){report('准备粤语模型 '+(i+1)+' / '+config.parts.length);const part=await download(config.parts[i],'模型片段',fresh);parts.push(part);size+=part.length;}
+  const corrupt=()=>Object.assign(Error('模型完整性校验未通过。请重新下载完整安装包，或检查网络后重试。'),{corruptModel:true});
+  if(size!==config.bytes)throw corrupt();
+  const model=new Uint8Array(size);let offset=0;for(let i=0;i<parts.length;i++){model.set(parts[i],offset);offset+=parts[i].length;parts[i]=null;}
+  if(config.sha256){const digest=[...new Uint8Array(await crypto.subtle.digest('SHA-256',model))].map(x=>x.toString(16).padStart(2,'0')).join('');if(digest!==config.sha256)throw corrupt();}
+  return model;
+}
+async function verifiedModel(config){
+  try{return await modelBytes(config);}catch(error){
+    if(!error.corruptModel)throw error;
+    // Only discard our model cache; learner progress and recordings are untouched.
+    try{await caches.delete(MODEL_CACHE);}catch{}
+    report('模型缓存校验失败，正在重新准备资源（只重试一次）…');
+    try{return await modelBytes(config,true);}catch(retryError){
+      if(retryError.corruptModel){try{await caches.delete(MODEL_CACHE);}catch{}}
+      throw retryError;
+    }
+  }
+}
 async function initialize(){
   const configResponse=await fetch('./asr-config.json');if(!configResponse.ok)throw Error('未找到免费模型配置');
   const config=await configResponse.json();
-  report('首次准备约 249 MB 识别资源；录音不会上传。');
-  const parts=[];let size=0;
-  for(let i=0;i<config.parts.length;i++){report('准备粤语模型 '+(i+1)+' / '+config.parts.length);const part=await download(config.parts[i],'模型片段');parts.push(part);size+=part.length;}
-  if(size!==config.bytes)throw Error('模型大小校验失败，请清除模型缓存后重试。');
-  const model=new Uint8Array(size);let offset=0;for(let i=0;i<parts.length;i++){model.set(parts[i],offset);offset+=parts[i].length;parts[i]=null;}
-  if(config.sha256){const digest=[...new Uint8Array(await crypto.subtle.digest('SHA-256',model))].map(x=>x.toString(16).padStart(2,'0')).join('');if(digest!==config.sha256)throw Error('模型完整性校验未通过');}
-  const tokens=await download(config.tokens,'字表');
+  report('正在准备识别资源；下载版从本机读取，网页版首次约 249 MB。录音不会上传。');
+  const model=await verifiedModel(config);
+  // The small vocabulary is cheap to refresh; a bad cached copy must not block every retry.
+  const tokens=await download(config.tokens,'字表',true);
   report('模型已备好，正在本机启动…');
   await new Promise((resolve,reject)=>{
     self.Module={locateFile:file=>new URL('./vendor/'+file,self.location.href).href,onRuntimeInitialized:resolve,onAbort:reason=>reject(Error('语音引擎启动失败：'+String(reason).slice(0,100))),print:()=>{},printErr:()=>{}};

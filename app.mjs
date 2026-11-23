@@ -1,4 +1,5 @@
-import {localMode,readState,writeState,cantoneseVoice,speakLocal} from './platform.mjs';
+import {localMode,readState,writeState} from './platform.mjs';
+import {createCourseAudio} from './course-audio.mjs';
 import {workFor,addCount,corePhrases,questions,lessonRequirements,phraseRound,recordPhraseRound,pendingPhraseRounds} from './lesson-engine.mjs';
 import {compareTranscript,resample} from './transcript.mjs';
 import {initializeRecognizer,recognize,isRecognizerReady} from './asr.mjs';
@@ -10,8 +11,10 @@ const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const titles={today:'今日练习',course:'12 周课程',tones:'声调练习',reviews:'到期复习',progress:'学习记录',settings:'使用与备份'};
 const stages=['发音基础与复习','理解与示范','听辨与回忆','三轮开口练习','情境迁移','回顾与打卡'];
 const minutes=[8,8,8,12,7,2];
-let curriculum,state,stateIds,revision=0,view='today',selected,step=0,tone=1,running=false,ready=false,player=null,playToken=0,toastTimer,imported=null,quizMessage='';
+let curriculum,state,stateIds,revision=0,view='today',selected,step=0,tone=1,running=false,ready=false,toastTimer,imported=null,quizMessage='';
 const phraseMap=new Map(),audioMap=new Map();
+const courseAudio=createCourseAudio();
+const desktopMode=globalThis.document?.documentElement?.dataset.distribution==='desktop';
 const pendingPrefix='cantonese-local:pending:';
 const pendingKey=pendingPrefix+crypto.randomUUID();
 let pendingState=null,confirmedState='',saveQueue=null,locallyProtected=false,saveConflict=false;
@@ -115,7 +118,7 @@ function progressPage(){
   return statsIntro('看见练习留下的变化','记录的是实际练习。熟练程度需要通过新的听力材料和真实交流检查。')+'<div class="stats"><div><strong>'+entries.length+' / 48</strong><span>已完成课程</span></div><div><strong>'+days+'</strong><span>累计学习天数</span></div><div><strong>'+Math.round(Object.values(state.lessons).reduce((sum,d)=>sum+d.seconds,0)/60)+'</strong><span>实际计时分钟</span></div></div><h2>课程记录</h2>'+(entries.length?'<table class="history"><thead><tr><th>日期</th><th>课程</th><th>计时</th><th>待核对</th></tr></thead><tbody>'+entries.map(([id,v])=>'<tr><td>'+esc(v.date)+'</td><td>'+esc(curriculum.lessons.find(l=>l.id===id)?.title)+'</td><td>'+v.minutes+' 分钟</td><td>'+pendingPhraseRounds(curriculum.lessons.find(l=>l.id===id),state.lessons[id])+' 轮</td></tr>').join('')+'</tbody></table>':'<p class="empty">完成第一课后，记录会出现在这里。</p>')+'<h2 class="settings-section">最近的声调练习</h2>'+state.toneHistory.slice(-12).reverse().map(v=>'<p><span class="badge">'+esc(v.date)+' · 第 '+v.tone+' 声</span> '+esc(v.message)+'</p>').join('');
 }
 function settingsPage(){
-  return '<h1>使用与备份</h1><section class="settings-section"><h2>开始练习</h2><p>按六个环节学习，点击开始计时。首次使用「启用免费粤语识别」会准备约 249 MB 资源并缓存。识别在设备浏览器运行，录音不上传；关闭页面后需重新载入引擎。</p><p>建议戴耳机。首次录音允许麦克风；权限关闭时可在地址栏的网站设置中重新允许。</p><p>'+ (localMode?'这是 Mac 本机版。双击启动文件，终端保持开启。':'这是互联网共享版。大家可以同时打开；每个人的进度仅保存在自己的浏览器，没有共享账号或自动跨设备同步。')+'</p></section><section class="settings-section"><h2>反馈怎么看</h2><ul><li>录音质量：静音、噪声或录音太短时，不进入内容通过。</li><li>目标内容：显示实际识别文字；固定句识别未匹配时，可自行标记为待核对，安排复习。识别可能听错，文字相同也不证明声母、韵母、声调准确。</li><li>单字练习：观察音高升降并提示口型；暂无可靠的音素准确度评分。自然变调、连读及个人音域会影响结果。</li><li>情境回答：记录识别文字和练习次数，暂不判断语义是否恰当。</li></ul></section><section class="settings-section"><h2>设备与示范音</h2><p>香港粤语合成音用于入门示范，仍可能有个别字音偏差。共享版使用访问者的粤语音色；如果没有，请在设备语音设置添加中文（香港）或粤语。系统不会用普通话代替。大型识别模型优先在电脑使用，手机是否可运行取决于可用内存。</p></section><section class="settings-section"><h2>学习数据</h2><p>'+ (localMode?'进度保存在本机 data/progress.json，并保留上次写入备份。':'进度保存在此浏览器。清理网站数据、更换设备或无痕窗口可能丢失记录，请定期导出。')+'录音仅在当前录音窗口临时保留，需留存请点击保存录音。</p><button data-action="export" class="primary">导出学习进度</button><label>从备份恢复（先下载当前记录）<input id="import-file" type="file" accept=".json,application/json"></label><div id="import-preview"></div></section><section class="settings-section"><h2>分享与来源</h2><p>127.0.0.1 只供这台电脑使用。互联网版可以把当前网页地址发给朋友；课程共用，练习记录各自保留。分享不包含你的本机录音或学习记录。</p><p>采用香港语言学学会粤拼，香港用法为主，地区变化见备注。粤拼是系统标音方案；没有用普通话谐音代替。</p><a href="https://jyutping.org/jyutping/" target="_blank" rel="noreferrer">粤拼方案</a> · <a href="./THIRD_PARTY.md" target="_blank">语音模型、许可证与能力说明</a></section>';
+  return '<h1>使用与备份</h1><section class="settings-section"><h2>开始练习</h2><p>按六个环节学习，点击开始计时。'+(desktopMode?'识别模型已在下载包中，第一次分析录音时会从本机载入。':'第一次分析录音时会准备约 249 MB 识别资源并缓存。')+'也可提前点击「启用免费粤语识别」。识别在设备浏览器运行，录音不上传；关闭页面后需重新载入引擎。</p><p>建议戴耳机。首次录音允许麦克风；权限关闭时可在地址栏的网站设置中重新允许。</p><p>'+ (localMode?'这是 Mac 本机版。双击启动文件后服务在后台运行，可以关闭启动窗口；重启电脑后需再次双击启动。':desktopMode?'这是电脑下载版。启动窗口保持开启；进度保存在当前浏览器，请固定使用 http://127.0.0.1:8779/。本包适用于 Windows 和 Mac，不能在 iPhone 上直接启动。':'这是互联网共享版。大家可以同时打开；每个人的进度仅保存在自己的浏览器，没有共享账号或自动跨设备同步。')+'</p></section><section class="settings-section"><h2>反馈怎么看</h2><ul><li>录音质量：静音、噪声或录音太短时，不进入内容通过。</li><li>目标内容：显示实际识别文字；固定句识别未匹配时，可自行标记为待核对，安排复习。识别可能听错，文字相同也不证明声母、韵母、声调准确。</li><li>单字练习：观察音高升降并提示口型；暂无可靠的音素准确度评分。自然变调、连读及个人音域会影响结果。</li><li>情境回答：记录识别文字和练习次数，暂不判断语义是否恰当。</li></ul></section><section class="settings-section"><h2>设备与示范音</h2><p>课程内置香港粤语真人基础音节与合成整句示范，无需安装系统音色或注册语音服务。部分内容使用真人音节拼接，播放时会标明「逐音节示范」，供拆音跟读，不展示自然连读。合成整句尚未完成母语者逐条审听，可能有字音偏差，请结合粤拼学习。慢速播放保持原有音高。大型识别模型优先在电脑使用，手机是否可运行取决于可用内存。</p><p><a href="./audio/README.md" target="_blank" rel="noreferrer">内置音频来源、作者与授权说明</a></p></section><section class="settings-section"><h2>学习数据</h2><p>'+ (localMode?'进度保存在本机 data/progress.json，并保留上次写入备份。':'进度保存在此浏览器。清理网站数据、更换设备或无痕窗口可能丢失记录，请定期导出。')+'录音仅在当前录音窗口临时保留，需留存请点击保存录音。</p><button data-action="export" class="primary">导出学习进度</button><label>从备份恢复（先下载当前记录）<input id="import-file" type="file" accept=".json,application/json"></label><div id="import-preview"></div></section><section class="settings-section"><h2>分享与来源</h2><p>127.0.0.1 只供当前电脑使用。下载版请分享原始安装包的下载链接；在线版可分享网页地址。不要把进度备份或个人录音放进分享包。</p><p>采用香港语言学学会粤拼，香港用法为主，地区变化见备注。粤拼是系统标音方案；没有用普通话谐音代替。</p><a href="https://jyutping.org/jyutping/" target="_blank" rel="noreferrer">粤拼方案</a> · <a href="./THIRD_PARTY.md" target="_blank">语音模型、许可证与能力说明</a></section>';
 }
 function recoveryPanel(){
   const recoveries=readRecoveries();
@@ -131,25 +134,20 @@ function render(){
   $('#main').innerHTML=({today:todayPage,course:coursePage,tones:tonesPage,reviews:reviewsPage,progress:progressPage,settings:settingsPage})[view]()+(view==='settings'?recoveryPanel():'');
 }
 function formatTime(seconds){return String(Math.floor(seconds/60)).padStart(2,'0')+':'+String(seconds%60).padStart(2,'0');}
-function stopPlayer(){playToken++;if(player){player.pause();player=null;}window.speechSynthesis?.cancel();}
+function stopPlayer(){courseAudio.stop();}
 async function play(id,slow=false){
-  stopPlayer();const token=playToken;
-  toast('正在准备粤语示范音…');
+  const lessonId=selected;
+  toast('正在准备课程示范音…');
   try{
-    const lessonId=selected;
-    const ended=()=>{if(view==='today'&&selected===lessonId){const d=draft(lessonId);if(!d.listened.includes(id))d.listened.push(id);save();render();}};
-    if(!localMode){const item=audioMap.get(id);if(!item)throw Error('找不到示范内容');await speakLocal(item.text,slow,()=>{if(token===playToken)ended();});return;}
-    const res=await fetch('/api/tts?id='+encodeURIComponent(id)+'&slow='+(slow?'1':'0'));
-    if(!res.ok)throw new Error((await res.json()).error);
-    const blob=await res.blob();if(token!==playToken)return;
-    const url=URL.createObjectURL(blob),a=new Audio(url);player=a;
-    a.addEventListener('ended',()=>{
-      URL.revokeObjectURL(url);
-      if(token===playToken)ended();
-    },{once:true});
-    a.addEventListener('error',()=>{URL.revokeObjectURL(url);toast('示范音播放失败，请重试。');},{once:true});
-    await a.play();toast('正在播放粤语系统示范音');
-  }catch(e){toast(e.message||'无法播放示范音');}
+    await courseAudio.play(id,{slow,
+      onstart:clip=>{
+        $('#device-status').textContent='内置课程示范音播放正常 · 无需系统音色';
+        const source=clip.sourceKind==='human-syllable-sequence'?'逐音节示范 · 真人音节拼接，供拆音跟读':clip.sourceKind==='human-syllable'?'香港粤语真人音节示范':'粤语合成整句示范';
+        toast((slow?'慢速播放 · ':'正在播放 · ')+source);
+      },
+      onend:()=>{if(view==='today'&&selected===lessonId){const d=draft(lessonId);if(!d.listened.includes(id))d.listened.push(id);save();render();}},
+    });
+  }catch(e){toast(e.message||'示范音未能播放，请重试。');}
 }
 document.addEventListener('click',async event=>{
   const button=event.target.closest('button');if(!button||!ready||button.disabled)return;
@@ -230,19 +228,16 @@ window.addEventListener('beforeunload',event=>{
   if(pendingState&&!locallyProtected){event.preventDefault();event.returnValue=true;}
 });
 
-let recordConfig,stream,mediaRecorder,recordTimeout,recordInterval,recordToken=0,lastBlob,lastUrl,recordBusy=false,pendingRecording=null;
+let recordConfig,stream,mediaRecorder,recordTimeout,recordInterval,recordToken=0,lastBlob,lastUrl,recordBusy=false,pendingRecording=null,retryAnalysis=null;
 const toneReferences=new Map();
 async function decodeAudio(buffer){
   const context=new (window.AudioContext||window.webkitAudioContext)();
   try{return await context.decodeAudioData(buffer);}finally{await context.close();}
 }
 async function loadToneReference(number){
-  if(!localMode)return null;
   if(toneReferences.has(number))return toneReferences.get(number);
   try{
-    const res=await fetch('/api/tts?id=tone-'+number,{signal:AbortSignal.timeout(5000)});
-    if(!res.ok)return null;
-    const decoded=await decodeAudio(await res.arrayBuffer());
+    const decoded=await decodeAudio(await courseAudio.read('tone-'+number));
     const analysis=analyzePitch(decoded.getChannelData(0),decoded.sampleRate);
     toneReferences.set(number,analysis);return analysis;
   }catch{return null;}
@@ -252,7 +247,7 @@ function clearPendingRecording(){
   $('#pending-recording').hidden=true;
 }
 function openRecorder(config){
-  clearPendingRecording();
+  clearPendingRecording();resetPlayback();
   stopPlayer();recordConfig=config;$('#recorder-title').textContent=(config.kind==='tone'||config.kind==='sound')?'单字声调练习':'录音与回听';
   $('#recorder-target').textContent=config.target;$('#recorder-help').textContent=config.help;
   $('#record-result').hidden=true;$('#record-start').hidden=false;$('#record-start').disabled=false;$('#record-stop').hidden=true;
@@ -261,6 +256,7 @@ function openRecorder(config){
 }
 function releaseStream(){if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;}clearTimeout(recordTimeout);clearInterval(recordInterval);}
 function resetPlayback(){
+  retryAnalysis=null;$('#record-start').textContent='开始录音';
   const audio=$('#record-playback');
   audio.pause();audio.removeAttribute('src');audio.load();
   if(lastUrl)URL.revokeObjectURL(lastUrl);
@@ -289,12 +285,85 @@ $('#pending-recording').onclick=()=>{
   finishPhraseRecording(config,result,'本轮已留作待核对 · 已安排复习');
   save();
 };
+async function analyzeRecording(decoded,config,token){
+  retryAnalysis=null;$('#record-start').textContent='开始录音';
+  try{
+    const samples=decoded.getChannelData(0);
+    if(config.kind==='tone'||config.kind==='sound'){
+      const a=analyzePitch(samples,decoded.sampleRate);
+      const reference=a.valid?await loadToneReference(config.tone):null;
+      if(token!==recordToken)return;
+      const f=toneFeedback(a,config.tone,reference);
+      $('#record-feedback').textContent=f.message;$('#record-limit').textContent=f.limitation;
+      drawCurve(a.curve);$('#record-status').textContent=a.valid?'已完成一次音高走势观察':'这次录音不足以判断，请重试';
+      if(a.valid&&config.kind==='sound'){$('#record-limit').textContent+=' 此音节练习只记观察次数，未验证音节内容正确。';addCount(draft(config.lessonId),config.id,2);save();}
+      if(a.valid){state.toneHistory.push({date:localDate(),tone:config.tone,message:f.message});state.toneHistory=state.toneHistory.slice(-400);save();}
+    }else{
+      const {valid,reason}=recordingQuality(samples,decoded.sampleRate);
+      $('#pitch-chart').innerHTML='';
+      $('#record-feedback').textContent=valid?'正在识别这次录音…':reason;
+      $('#record-limit').textContent='内容识别与发音准确度分开记录。';
+      $('#record-result').hidden=false;
+      if(!valid){$('#record-status').textContent='录音质量不足，未计入练习';}
+      else{
+        if(!isRecognizerReady()){
+          $('#record-status').textContent='正在准备识别；这段录音已保留，无需重录。';
+          await loadAsrUI({throwOnError:true,updateRecord:message=>{if(token===recordToken)$('#record-status').textContent=message+' · 录音已保留';}});
+          if(token!==recordToken)return;
+        }
+        $('#record-status').textContent='正在分析这段录音…';
+        const heard=await recognize(resample(samples,decoded.sampleRate));
+        if(token!==recordToken)return;
+        const d=draft(config.lessonId);
+        if(config.kind==='role'){
+          $('#record-status').textContent=heard?'已记录一次情境练习':'未识别出内容，未计数';
+          $('#record-feedback').textContent='识别到：'+(heard||'（没有结果）');
+          $('#record-limit').textContent='自由回答未作语义与发音评分。请回听并对照交流目标。';
+          if(heard){addCount(d,config.id.replace(config.lessonId+'-',''),2);if(!d.roleplays.includes(config.id))d.roleplays.push(config.id);save();}
+        }else{
+          const result=compareTranscript(config.expected,heard);
+          if(result.matched){
+            const counted=recordPhraseRound(d,config.id,config.round,true);
+            finishPhraseRecording(config,result,counted?'目标内容一致 · 本轮已计入':'目标内容一致 · 额外练习');
+            if(counted){if(!d.recorded.includes(config.id))d.recorded.push(config.id);save();}
+          }else if(!heard.trim()){
+            $('#record-status').textContent='未识别出内容 · 本轮未计入';
+            $('#record-feedback').textContent='请回听这次录音，再重新录制。';
+            $('#record-limit').textContent='这次没有识别文字可供对照。';
+          }else{
+            $('#record-status').textContent='目标内容未匹配 · 本轮未计入';
+            $('#record-feedback').textContent='识别器也可能听错。可以先回听，再重录或留作待核对。\n识别到：'+result.heard;
+            $('#record-limit').textContent=result.limitation;
+            if(config.round<3){
+              pendingRecording={config,result};
+              $('#pending-recording').hidden=false;
+            }else{
+              finishPhraseRecording(config,result,'目标内容未匹配 · 额外练习');
+            }
+          }
+        }
+      }
+    }
+    $('#record-result').hidden=false;
+  }catch(error){
+    if(token!==recordToken)return;
+    $('#record-status').textContent='分析未完成：'+error.message;
+    $('#record-result').hidden=false;
+    $('#record-feedback').textContent='录音已保留，可以回听或保存。点击重试分析；需要重录可关闭后重新打开录音。';
+    $('#record-limit').textContent='分析失败未计入通过。';
+    if(config.kind!=='tone'&&config.kind!=='sound'){
+      retryAnalysis={decoded,config};$('#record-start').textContent='重试分析这段录音';$('#record-start').hidden=false;
+    }
+  }finally{if(token===recordToken){recordBusy=false;$('#record-start').disabled=false;}}
+}
 $('#record-start').onclick=async()=>{
   if(recordBusy||$('#record-start').hidden)return;recordBusy=true;const token=++recordToken,config=recordConfig;
-  clearPendingRecording();resetPlayback();
+  clearPendingRecording();
+  if(retryAnalysis){const retained=retryAnalysis;$('#record-start').disabled=true;await analyzeRecording(retained.decoded,retained.config,token);return;}
+  resetPlayback();
   $('#record-start').disabled=true;$('#record-status').textContent='等待麦克风权限…';$('#record-result').hidden=true;
   try{
-    if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder)throw new Error('当前浏览器不支持录音，请用 Chrome 打开本机地址。');
+    if(!navigator.mediaDevices?.getUserMedia||!window.MediaRecorder)throw new Error('当前浏览器不支持录音，请用最新版 Chrome / Edge 打开本机地址或 HTTPS 网页。');
     const incoming=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:false,autoGainControl:false},video:false});
     if(token!==recordToken){incoming.getTracks().forEach(t=>t.stop());return;}
     stream=incoming;
@@ -313,61 +382,7 @@ $('#record-start').onclick=async()=>{
         $('#record-playback').src=lastUrl;
         const decoded=await decodeAudio(await lastBlob.arrayBuffer());
         if(token!==recordToken)return;
-        const samples=decoded.getChannelData(0);
-        if(config.kind==='tone'||config.kind==='sound'){
-          const a=analyzePitch(samples,decoded.sampleRate);
-          const reference=a.valid?await loadToneReference(config.tone):null;
-          if(token!==recordToken)return;
-          const f=toneFeedback(a,config.tone,reference);
-          $('#record-feedback').textContent=f.message;$('#record-limit').textContent=f.limitation;
-          drawCurve(a.curve);$('#record-status').textContent=a.valid?'已完成一次音高走势观察':'这次录音不足以判断，请重试';
-          if(a.valid&&config.kind==='sound'){$('#record-limit').textContent+=' 此音节练习只记观察次数，未验证音节内容正确。';addCount(draft(config.lessonId),config.id,2);save();}
-          if(a.valid){state.toneHistory.push({date:localDate(),tone:config.tone,message:f.message});state.toneHistory=state.toneHistory.slice(-400);save();}
-        }else{
-          const {valid,reason}=recordingQuality(samples,decoded.sampleRate);
-          $('#pitch-chart').innerHTML='';
-          $('#record-feedback').textContent=valid?'正在识别这次录音…':reason;
-          $('#record-limit').textContent='内容识别与发音准确度分开记录。';
-          $('#record-result').hidden=false;
-          if(!valid){$('#record-status').textContent='录音质量不足，未计入练习';}
-          else if(!isRecognizerReady()){
-            $('#record-status').textContent='尚未启用内容识别 · 未计入通过';
-            $('#record-feedback').textContent='已有录音，可以回听。关闭后点击「启用免费粤语识别」，再进行内容检查。';
-            $('#record-limit').textContent='没有识别证据，不判断读对。';
-          }else{
-            const heard=await recognize(resample(samples,decoded.sampleRate));
-            if(token!==recordToken)return;
-            const d=draft(config.lessonId);
-            if(config.kind==='role'){
-              $('#record-status').textContent=heard?'已记录一次情境练习':'未识别出内容，未计数';
-              $('#record-feedback').textContent='识别到：'+(heard||'（没有结果）');
-              $('#record-limit').textContent='自由回答未作语义与发音评分。请回听并对照交流目标。';
-              if(heard){addCount(d,config.id.replace(config.lessonId+'-',''),2);if(!d.roleplays.includes(config.id))d.roleplays.push(config.id);save();}
-            }else{
-              const result=compareTranscript(config.expected,heard);
-              if(result.matched){
-                const counted=recordPhraseRound(d,config.id,config.round,true);
-                finishPhraseRecording(config,result,counted?'目标内容一致 · 本轮已计入':'目标内容一致 · 额外练习');
-                if(counted){if(!d.recorded.includes(config.id))d.recorded.push(config.id);save();}
-              }else if(!heard.trim()){
-                $('#record-status').textContent='未识别出内容 · 本轮未计入';
-                $('#record-feedback').textContent='请回听这次录音，再重新录制。';
-                $('#record-limit').textContent='这次没有识别文字可供对照。';
-              }else{
-                $('#record-status').textContent='目标内容未匹配 · 本轮未计入';
-                $('#record-feedback').textContent='识别器也可能听错。可以先回听，再重录或留作待核对。\n识别到：'+result.heard;
-                $('#record-limit').textContent=result.limitation;
-                if(config.round<3){
-                  pendingRecording={config,result};
-                  $('#pending-recording').hidden=false;
-                }else{
-                  finishPhraseRecording(config,result,'目标内容未匹配 · 额外练习');
-                }
-              }
-            }
-          }
-        }
-        $('#record-result').hidden=false;
+        await analyzeRecording(decoded,config,token);
       }catch{if(token===recordToken)$('#record-status').textContent='无法分析这次录音，请重试或改用 Chrome。';}
       finally{if(token===recordToken){recordBusy=false;$('#record-start').disabled=false;}}
     };
@@ -380,7 +395,7 @@ $('#record-start').onclick=async()=>{
     if(token!==recordToken)return;
     releaseStream();recordBusy=false;
     $('#record-start').disabled=false;
-    $('#record-status').textContent=e.name==='NotAllowedError'?'麦克风权限未开启。请在地址栏的网站设置和 macOS 隐私设置中允许麦克风，再点击重试。':e.name==='NotFoundError'?'没有找到麦克风，请连接设备后重试。':e.message;
+    $('#record-status').textContent=e.name==='NotAllowedError'?'麦克风权限未开启。请在浏览器地址栏的网站设置中允许麦克风，并检查 Windows「隐私和安全性 → 麦克风」或 macOS「隐私与安全性 → 麦克风」，再点击重试。':e.name==='NotFoundError'?'没有找到麦克风，请连接设备后重试。':e.name==='NotReadableError'?'麦克风被其他程序占用或无法读取，请关闭占用麦克风的程序后重试。':e.message;
   }
 };
 function drawCurve(curve){
@@ -402,14 +417,15 @@ async function init(){
     state=normalizeState(saved.state,stateIds);revision=saved.revision;confirmedState=JSON.stringify(state);
     selected=nextLesson().id;ready=true;
     $('#asr-setup').onclick=loadAsrUI;
-    const voice=localMode?true:await cantoneseVoice();$('#device-status').textContent=localMode?'Mac 本机示范音就绪':voice?'粤语示范音就绪 · 进度仅存此浏览器':'需要添加中文（香港）粤语音色，才能完成听音任务';
+    $('#device-status').textContent='正在检查课程示范音…';
+    courseAudio.prepare(audioMap).then(()=>{$('#device-status').textContent='内置粤语示范音 · 无需安装系统音色';}).catch(error=>{$('#device-status').textContent=error.message+' 点击听示范可重试。';});
     $('#save-status').textContent=readRecoveries().length?'发现未确认的本地进度，见「使用与备份」。':'本机进度已载入';render();
   }catch(e){$('#main').innerHTML='<h1>暂时无法打开学习台</h1><p class="alert">'+esc(e.message)+'</p><p>原始数据不会被重置。请保留应用文件夹，联系助手处理。</p>';$('#save-status').textContent='未载入';}
 }
-async function loadAsrUI(){
+async function loadAsrUI({throwOnError=false,updateRecord=()=>{}}={}){
   const button=$('#asr-setup');button.disabled=true;
-  const update=message=>{$('#asr-global-status').textContent=message;const el=$('#asr-status');if(el)el.textContent=message;};
+  const update=message=>{updateRecord(message);$('#asr-global-status').textContent=message;const el=$('#asr-status');if(el)el.textContent=message;};
   try{await initializeRecognizer(update);update('粤语识别就绪 · 录音留在设备');button.textContent='识别已就绪';}
-  catch(e){update('未能启用：'+e.message);button.disabled=false;}
+  catch(e){update('未能启用：'+e.message);button.disabled=false;if(throwOnError)throw e;}
 }
 init();
