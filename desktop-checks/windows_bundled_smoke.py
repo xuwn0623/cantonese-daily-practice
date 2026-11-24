@@ -18,7 +18,7 @@ ARCHIVES = {
     'amd64': '90905e64a840557d8c1bc4f5b74db3d7ee85e3ffb217611cac1c7813acea4159',
     'arm64': 'bbe116bb1248820359cbf25127ac5c7794ea161869d83686cfbc9a45203ff836',
 }
-INDEX = '<!doctype html><meta charset="utf-8"><h1>粤语学习台测试</h1>'.encode('utf-8')
+INDEX = '<!doctype html><meta charset="utf-8"><h1>楠哥粤语学习台测试</h1>'.encode('utf-8')
 
 
 def get(port, path='/'):
@@ -53,8 +53,8 @@ def main():
     body = urllib.request.urlopen(url, timeout=60).read()
     assert hashlib.sha256(body).hexdigest() == ARCHIVES[arch]
     with tempfile.TemporaryDirectory(prefix='cantonese-bundled-') as temp:
-        root = Path(temp) / '粤语 学习 (test) !'
-        root.mkdir()
+        root = Path(temp) / '完整解压 (test) !' / '楠哥粤语学习台-1.0.3'
+        root.mkdir(parents=True)
         runtime = root / 'runtime' / ('windows-' + arch)
         runtime.mkdir(parents=True)
         with zipfile.ZipFile(io.BytesIO(body)) as archive:
@@ -75,7 +75,7 @@ def main():
             if path.is_file():
                 content = path.read_bytes()
                 files.append({'path': path.relative_to(root).as_posix(), 'size': len(content), 'sha256': hashlib.sha256(content).hexdigest()})
-        (root / 'manifest.json').write_text(json.dumps({'version': '1.0.2-fixture', 'files': files}), encoding='utf-8')
+        (root / 'manifest.json').write_text(json.dumps({'version': '1.0.3-fixture', 'files': files}), encoding='utf-8')
         for path in root.rglob('*'):
             if path.is_file():
                 os.utime(path, (1577836800, 1577836800))

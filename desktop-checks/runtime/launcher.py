@@ -325,7 +325,7 @@ def make_server(root, port=DEFAULT_PORT, *, max_connections=8, connection_timeou
 
 
 def main():
-    parser = argparse.ArgumentParser(description="粤语学习台下载版：仅本机、只读，无需服务器账户")
+    parser = argparse.ArgumentParser(description="楠哥粤语学习台下载版：仅本机、只读，无需服务器账户")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT, help="本机端口，默认 8779；改变端口会使用另一份浏览器进度")
     parser.add_argument("--no-open", action="store_true", help="不自动打开浏览器")
     parser.add_argument("--check", action="store_true", help="仅检查完整性，不启动服务")
@@ -350,7 +350,7 @@ def main():
             print("本机服务无法启动：%s" % error, file=sys.stderr)
         return 1
     url = "http://127.0.0.1:%d/" % server.server_port
-    print("学习台已启动：" + url, flush=True)
+    print("楠哥粤语学习台已启动：" + url, flush=True)
     print("请保留此窗口；按 Ctrl+C 停止。进度保存在此地址对应的浏览器中。", flush=True)
     if not args.no_open:
         try:
@@ -361,7 +361,7 @@ def main():
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\n学习台已停止。")
+        print("\n楠哥粤语学习台已停止。")
     finally:
         server.server_close()
     return 0

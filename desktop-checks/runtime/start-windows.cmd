@@ -1,5 +1,7 @@
 @echo off
 setlocal EnableExtensions DisableDelayedExpansion
+title Nange Cantonese Desk
+echo Nange Cantonese Desk
 cd /d "%~dp0"
 if errorlevel 1 goto location_error
 if not exist "launcher.py" goto package_error
